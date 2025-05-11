@@ -11,6 +11,10 @@ export default function Home() {
     pdfId?: string;
   }[]>([]);
   const [extractingIndex, setExtractingIndex] = useState<number | null>(null);
+  const [selectedPdfIndex, setSelectedPdfIndex] = useState<number | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const [chatHistory, setChatHistory] = useState<{ question: string; answer: string }[]>([]);
+  const [isAsking, setIsAsking] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Handle file selection from the normal button
@@ -55,6 +59,44 @@ export default function Home() {
     setExtractingIndex(null);
   };
 
+  // Handle PDF selection
+  const handleSelectPdf = (index: number) => {
+    setSelectedPdfIndex(index);
+    setChatHistory([]); // Reset chat when switching PDFs
+  };
+
+  // Handle chat input change
+  const handleChatInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setChatInput(e.target.value);
+  };
+
+  // Handle chat form submit
+  const handleChatSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedPdfIndex === null || !chatInput.trim()) return;
+    setIsAsking(true);
+    const pdfId = pdfs[selectedPdfIndex].pdfId;
+    const question = chatInput.trim();
+    setChatHistory(prev => [...prev, { question, answer: "..." }]);
+    setChatInput("");
+    try {
+      const res = await fetch('https://localhost:7046/api/askQuestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pdfId, question })
+      });
+      const data = await res.json();
+      setChatHistory(prev => prev.map((item, idx) =>
+        idx === prev.length - 1 ? { ...item, answer: data.answer } : item
+      ));
+    } catch (err) {
+      setChatHistory(prev => prev.map((item, idx) =>
+        idx === prev.length - 1 ? { ...item, answer: 'Error getting answer.' } : item
+      ));
+    }
+    setIsAsking(false);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
       <main className="w-full max-w-6xl flex flex-row bg-white shadow-md rounded-lg p-0 min-h-[500px]">
@@ -92,7 +134,10 @@ export default function Home() {
                 </tr>
               ) : (
                 pdfs.map((pdf, idx) => (
-                  <tr key={idx} className="border-t hover:bg-blue-50 transition-colors">
+                  <tr key={idx} className={`border-t hover:bg-blue-50 transition-colors ${selectedPdfIndex === idx ? 'bg-blue-100' : ''}`}
+                    onClick={() => handleSelectPdf(idx)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td className="px-3 py-2 truncate max-w-[160px] text-gray-900 font-medium" title={pdf.name}>{pdf.name}</td>
                     <td className="px-3 py-2">
                       <span className={
@@ -105,7 +150,7 @@ export default function Home() {
                         className="px-2 py-1 rounded-md bg-blue-500 text-white text-xs font-medium shadow-sm hover:bg-blue-600 transition disabled:opacity-50"
                         style={{ minWidth: 70 }}
                         disabled={pdf.status !== 'Not Started' || extractingIndex !== null}
-                        onClick={() => handleExtract(idx)}
+                        onClick={e => { e.stopPropagation(); handleExtract(idx); }}
                       >
                         Extract
                       </button>
@@ -119,22 +164,38 @@ export default function Home() {
         {/* Chatbot - Right Side (60%) */}
         <section className="w-3/5 p-8 flex flex-col justify-between min-h-[500px]">
           <div className="flex-1 overflow-y-auto mb-4">
-            {/* Chat messages placeholder */}
-            <div className="text-gray-500 text-center mt-20">Chatbot conversation will appear here.</div>
+            {selectedPdfIndex === null ? (
+              <div className="text-gray-500 text-center mt-20">Select a PDF to start chatting.</div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {chatHistory.length === 0 ? (
+                  <div className="text-gray-400 text-center mt-20">No conversation yet. Ask a question about the selected PDF.</div>
+                ) : (
+                  chatHistory.map((msg, idx) => (
+                    <div key={idx} className="">
+                      <div className="font-semibold text-blue-700">You: <span className="font-normal text-gray-900">{msg.question}</span></div>
+                      <div className="ml-4 text-gray-800">Bot: {msg.answer}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
-          <form className="flex gap-2">
+          <form className="flex gap-2" onSubmit={handleChatSubmit}>
             <input
               type="text"
-              className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Type your message..."
-              disabled
+              className="flex-1 text-black border border-gray-900 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder={selectedPdfIndex === null ? "Select a PDF to chat..." : "Type your message..."}
+              value={chatInput}
+              onChange={handleChatInputChange}
+              disabled={selectedPdfIndex === null || isAsking}
             />
             <button
               type="submit"
               className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50"
-              disabled
+              disabled={selectedPdfIndex === null || isAsking || !chatInput.trim()}
             >
-              Send
+              {isAsking ? 'Sending...' : 'Send'}
             </button>
           </form>
         </section>
